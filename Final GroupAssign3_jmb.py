@@ -1,161 +1,121 @@
- from __future__ import division
+from __future__ import division
 from pandas import Series, DataFrame
 import pandas as pd
 import numpy as np
+import statsmodels.api as sm
 import os
-import csv
-import xlrd
-import time
-import matplotlib.pyplot as plt
-import pytz
-import statsmodels.api as sm #package developed to do stats analyses
-from datetime import datetime, timedelta
-from dateutil import parser
 
-# SET UP
-print(time.ctime())
 main_dir = "C:/Users/J/Desktop/data/"
 root = main_dir + "logit/"
-assign = "allocation_subsamp.csv"
-consump = "kwh_redux_pretrial.csv"
 df_assign = pd.read_csv(root + assign, header=0)
-#-------------------------------------------------------------------------------
-## 1. Create a vector with the IDs for the control group, and the IDs for each treatment group
-df_E = df_assign.ID[(df_assign.tariff == 'E') & (df_assign.stimulus == 'E')]
-df_A1 = df_assign.ID[(df_assign.tariff == 'A') & (df_assign.stimulus == '1')]
-df_A3 = df_assign.ID[(df_assign.tariff == 'A') & (df_assign.stimulus == '3')]
-df_B1 = df_assign.ID[(df_assign.tariff == 'B') & (df_assign.stimulus == '1')]
-df_B3 = df_assign.ID[(df_assign.tariff == 'B') & (df_assign.stimulus == '3')]
 
-#-----------------------------------------------------------------------------
-## 2. Seed the random number generator
-np.random.seed(1789)
+## 1. create 5 unique vectors using the data from allocation_subsamp.csv
+    ### df_assign['treatment'] = df_assign['tariff'] + df_assign['stimulus']
+    ### dfEE = df_assign[df_assign['treatment']=='EE']
+    ### dfA1 = df_assign[df_assign['treatment']=='A1']
+    ### dfA3 = df_assign[df_assign['treatment']=='A3']
+    ### dfB1 = df_assign[df_assign['treatment']=='B1']
+    ### dfB3 = df_assign[df_assign['treatment']=='B3']
 
-#-----------------------------------------------------------------------------
-## 3. Randomly draw from each vector, drawing without replacement
-df_E_300 = np.random.choice(df_E, size=300, replace=False, p=None)
-df_A1_150 = np.random.choice(df_A1, size=150, replace=False, p=None)
-df_A3_150 = np.random.choice(df_A3, size=150, replace=False, p=None)
-df_B1_50 = np.random.choice(df_B1, size=50, replace=False, p=None)
-df_B3_50 = np.random.choice(df_B3, size=50, replace=False, p=None)
+    ### control = dfEE.ID
+    ### treatA1 = dfA1.ID
+    ### treatA3 = dfA3.ID
+    ### treatB1 = dfB1.ID
+    ### treatB3 = dfB3.ID
 
-#-----------------------------------------------------------------------------
-## 4. Create a DataFrame with all the sampled IDs
-    #Combine these series to form a dataframe
-    #First, make these arrays into lists. then combine lists to df
-df_E_300 = np.random.choice(df_E, size=300, replace=False, p=None).tolist()
-df_A1_150 = np.random.choice(df_A1, size=150, replace=False, p=None).tolist()
-df_A3_150 = np.random.choice(df_A3, size=150, replace=False, p=None).tolist()
-df_B1_50 = np.random.choice(df_B1, size=50, replace=False, p=None).tolist()
-df_B3_50 = np.random.choice(df_B3, size=50, replace=False, p=None).tolist()
+control = df_assign.ID[(df_assign.tariff == 'E') & (df_assign.stimulus == 'E')]
+treatA1 = df_assign.ID[(df_assign.tariff == 'A') & (df_assign.stimulus == '1')]
+treatA3 = df_assign.ID[(df_assign.tariff == 'A') & (df_assign.stimulus == '3')]
+treatB1 = df_assign.ID[(df_assign.tariff == 'B') & (df_assign.stimulus == '1')]
+treatB3 = df_assign.ID[(df_assign.tariff == 'B') & (df_assign.stimulus == '3')]
 
-df_SampID = pd.DataFrame(df_E_300 + df_A1_150 + df_A3_150 + df_B1_50 + df_B3_50, columns=['ID'])
+## 2. set the random seed to 1789
+np.random.seed(seed=1789)
 
-#-----------------------------------------------------------------------------
-## 5. Import consumption data and merge with sampled ID's - Strips away all other consumption data
-df_cons = pd.read_csv(root + consump, header=0, parse_dates=[2], date_parser=np.datetime64)
+## 3. use the function np.random.choice to extract samples without replacement
+sample_control = np.random.choice(control, 300, replace=False)
+sample_A1 = np.random.choice(treatA1, 150, replace=False)
+sample_A3 = np.random.choice(treatA3, 150, replace=False)
+sample_B1 = np.random.choice(treatB1, 50, replace=False)
+sample_B3 = np.random.choice(treatB3, 50, replace=False)
 
-#-----------------------------------------------------------------------------
-## 6. Merge sampled ID's dataframe with consumption data
-df = pd.merge(df_SampID, df_cons, on = ['ID'], how = 'inner')
-df.reset_index(drop=True, inplace=True) #drop=true will get rid of old index. inplace will replace old dataframe
+## 4. create a DataFrame with all the the sampled IDs.
+sample = sample_control.tolist() + sample_A1.tolist() + sample_A3.tolist() + sample_B1.tolist() + sample_B3.tolist()
+sample = DataFrame(sample, columns = ['ID'])
 
-#-----------------------------------------------------------------------------
-## 7 Compute aggregate monthly consumption for each panel ID.
-    #create month variable 
-df['month'] = df['date'].apply(lambda x: x.month)
-df['year'] = df['date'].apply(lambda x: x.year)
+## 5. import the consumption data from kwh_redux_pretrail.csv
+df = pd.read_csv(root + "kwh_redux_pretrial.csv", header = 0)
 
-    #aggregate consumption for each ID by month 
-grp = df.groupby(['year', 'month', 'ID'])
-df_agg = grp['kwh'].sum().reset_index()
+## 6. merge the consumption data with the sampled IDs
+df = pd.merge(df, sample, on = ['ID'])
 
-#dont need this, since we're going to pivot and create month specific column names
-#df_agg['kwh_month'] = df_agg['kwh']
-#df_agg.drop('kwh', axis=1, inplace=True)
+## 7. aggregate all the consumption data by month for each separate group
+grp = df.groupby(['ID', 'year', 'month'])
+agg = grp['kwh'].sum().reset_index()
 
-#-----------------------------------------------------------------------------
-## 8. Pivot the data
-    # prep to pivot: make kwh_[month] variables for wide dataframe
-df_agg['month_str'] = ['0' + str(v) if v < 10 else str(v) for v in df_agg['month']]
-df_agg['kwh_ym'] = 'kwh_' + df_agg.year.apply(str) + "_" + df_agg.month_str.apply(str)
+## 8. pivot the data from long to wide, so that kwh for each month is a variable.
+agg['kwh_month'] = 'kwh_' + agg.month.apply(str) 
+df_piv = agg.pivot('ID', 'kwh_month', 'kwh')
+df_piv.reset_index(inplace = True)
+df_piv.columns.name = None
 
-    # pivot the data from long to wide df.pivot(i, j, value)
-df_piv = df_agg.pivot('ID', 'kwh_ym', 'kwh')
-df_piv.reset_index(inplace=True) #to make the ID not the index 
-df_piv.columns.name = None #get reid of kwh_ym over the index 
+## 9. merge the wide dataset with the treatment data
+df = pd.merge(df_piv, df_assign, on = ['ID'])
 
-#-----------------------------------------------------------------------------
-## 9. Merge the wide dataset with the treatment assignment 
-df2 = pd.merge(df_assign, df_piv, on = ['ID'])
-df2.head() # df2 is now my dataframe with monthly aggregate info, wide, with T/C info. 
 
-#-----------------------------------------------------------------------------
-## 10. Run a logit model to see if consumption could predict T/C status for each of the 4 T groups 
-    # get list of all the kwh cols    
-kwh_cols = [v for v in df2.columns.values if v.startswith('kwh')]
+## 10. compute a logit model comparing each treatment group to the control using only the consumption data.
+kwh_cols = [v for v in df.columns.values if v.startswith('kwh')]
 
-    # make cols of 1/0's for each type of treatment (for y variables)
-    # make each its own dataframe in order to run a separate logit regression
-df2['treatment'] = df2['tariff'] + df2['stimulus']
-df3 = pd.get_dummies(df2, columns=['treatment'])
+# SET UP Y, X
+df['treatment'] = df['tariff'] + df['stimulus']
+dfEEA1 = df[(df.treatment == 'EE') | (df.treatment == 'A1')]
+dfEEA3 = df[(df.treatment == 'EE') | (df.treatment == 'A3')]
+dfEEB1 = df[(df.treatment == 'EE') | (df.treatment == 'B1')]
+dfEEB3 = df[(df.treatment == 'EE') | (df.treatment == 'B3')]
 
-df_EEA1 = df3[['ID'] + ['treatment_A1'] + [v for v in df3.columns.values if v.startswith('kwh')]]
-df_EEA3 = df3[['ID'] + ['treatment_A3'] + [v for v in df3.columns.values if v.startswith('kwh')]]
-df_EEB1 = df3[['ID'] + ['treatment_B1'] + [v for v in df3.columns.values if v.startswith('kwh')]]
-df_EEB3 = df3[['ID'] + ['treatment_B3'] + [v for v in df3.columns.values if v.startswith('kwh')]]
 
-    # Let's run some models!
-#-----------------------------------------------------------------------------
-## Set up: Logit on A1, EE
-y_A1 = df_EEA1['treatment_A1']
-X_A1 = df_EEA1[kwh_cols]
-X_A1 = sm.add_constant(X_A1)
+dfEEA1['T'] = 0 + (df.treatment == 'A1')
+dfEEA3['T'] = 0 + (df.treatment == 'A3')
+dfEEB1['T'] = 0 + (df.treatment == 'B1')
+dfEEB3['T'] = 0 + (df.treatment == 'B3')
 
-## Run logit model on A1, EE
-logit_model_A1 = sm.Logit(y_A1, X_A1)
-logit_results_A1 = logit_model_A1.fit()
-print(logit_results_A1.summary())
-#-------------------------------------------------------
-## Set up: Logit on B1, EE
-y_B1 = df_EEB1['treatment_B1']
-X_B1 = df_EEB1[kwh_cols]
-X_B1 = sm.add_constant(X_B1)
+ # Logit EE, A1
+yEEA1 = dfEEA1['T']
+XEEA1 = dfEEA1[kwh_cols]
+XEEA1 = sm.add_constant(XEEA1)
 
-## Run logit model on A1, EE
-logit_model_B1 = sm.Logit(y_B1, X_B1)
-logit_results_B1 = logit_model_B1.fit()
-print(logit_results_B1.summary())
-#-------------------------------------------------------
-## Set up: Logit on B1, EE
-y_B1 = df_EEB1['treatment_B1']
-X_B1 = df_EEB1[kwh_cols]
-X_B1 = sm.add_constant(X_B1)
+logit_model_EEA1 = sm.Logit(yEEA1, XEEA1)
+logit_results_EEA1 = logit_model_EEA1.fit()
+print(logit_results_EEA1.summary())
 
-## Run logit model on A1, EE
-logit_model_B1 = sm.Logit(y_B1, X_B1)
-logit_results_B1 = logit_model_B1.fit()
-print(logit_results_B1.summary())
-#-------------------------------------------------------
-## Set up: Logit on B3, EE
-y_B3 = df_EEB3['treatment_B3']
-X_B3 = df_EEB3[kwh_cols]
-X_B3 = sm.add_constant(X_B3)
+ # Logit EE, A3
+yEEA3 = dfEEA3['T']
+XEEA3 = dfEEA3[kwh_cols]
+XEEA3 = sm.add_constant(XEEA3)
 
-## Run logit model on A1, EE
-logit_model_B3 = sm.Logit(y_B3, X_B3)
-logit_results_B3 = logit_model_B3.fit()
-print(logit_results_B3.summary())
-#-------------------------------------------------------
+logit_model_EEA3 = sm.Logit(yEEA3, XEEA3)
+logit_results_EEA3 = logit_model_EEA3.fit()
+print(logit_results_EEA3.summary())
 
-print("Yay! Done with Part I!")
+ # Logit EE, B1
+yEEB1 = dfEEB1['T']
+XEEB1 = dfEEB1[kwh_cols]
+XEEB1 = sm.add_constant(XEEB1)
 
-##-----------------------------------------------------------------------------
-##-----------------------------------------------------------------------------
+logit_model_EEB1 = sm.Logit(yEEB1, XEEB1)
+logit_results_EEB1 = logit_model_EEB1.fit()
+print(logit_results_EEB1.summary())
 
-## SECTION II
+ # Logit EE, B3
+yEEB3 = dfEEB3['T']
+XEEB3 = dfEEB3[kwh_cols]
+XEEB3 = sm.add_constant(XEEB3)
 
-#Dan's code--------------------------------------------------------------------
+logit_model_EEB3 = sm.Logit(yEEB3, XEEB3)
+logit_results_EEB3 = logit_model_EEB3.fit()
+print(logit_results_EEB3.summary())
+
+## -----------------------------------------------------------------------------
 
 class bcolors:
     HEADER = '\033[95m'
@@ -339,34 +299,23 @@ def do_logit(df, tar, stim, D = None):
 #                           SECTION 2                               #
 #####################################################################
 
-main_dir = "C:/Users/J/Desktop/data/"
-root = main_dir + "logit/"
-
 nas = ['', ' ', 'NA'] # set NA values so that we dont end up with numbers and text
 srvy = pd.read_csv(root + 'Smart meters Residential pre-trial survey data.csv', na_values = nas)
-df4 = pd.read_csv(root + 'data_section2.csv')
+df2 = pd.read_csv(root + 'data_section2.csv')
 
 # list of questions
-qs = ques_list(srvy) 
+qs = ques_list(srvy)
+qs.recoded.values
 
 # get dummies
-sel = [200, 310, 405]
-dummies = dvt(srvy, sel)
+dummies = dvt(srvy, [200, 310, 405])
 
 # run logit, optional dummies
-tariffs = [v for v in pd.unique(df4['tariff']) if v != 'E']
-stimuli = [v for v in pd.unique(df4['stimulus']) if v != 'E']
+tariffs = [v for v in pd.unique(df2['tariff']) if v != 'E']
+stimuli = [v for v in pd.unique(df2['stimulus']) if v != 'E']
 tariffs.sort() # make sure the order correct with .sort()
 stimuli.sort()
 
 for i in tariffs:
     for j in stimuli:
-        do_logit(df4, i, j, D = dummies)
-
-
-
-
-
-
-
-
+        do_logit(df2, i, j, D = dummies)

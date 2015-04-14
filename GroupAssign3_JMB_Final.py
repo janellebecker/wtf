@@ -365,8 +365,3 @@ for i in tariffs:
 
 
 
-
-
-
-
-
